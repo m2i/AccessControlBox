@@ -5,6 +5,7 @@
 #include <linux/input.h>
 #include <string.h>
 #include <stdio.h>
+#include <wiringPi.h>
 
 char remapKeyCode(int scanCode);
 
@@ -21,6 +22,10 @@ void main() {
   int fd;
   int index = 0;
   char card[15];
+  if (wiringPiSetup() == -1) {
+    return;
+  }
+  pinMode(25, OUTPUT);
   fd = open(device, O_RDONLY);
   if (fd == -1) {
     printf("Could not open device: %s\n", strerror(errno));
@@ -34,7 +39,10 @@ void main() {
       } else {
 	break;
       }
-    } else if (n != sizeof(ev)) {
+    } else if (n == 0) {
+      digitalWrite(25, 0);
+      continue;
+    }else if (n != sizeof(ev)) {
       errno = EIO;
       break;
     }
@@ -49,6 +57,8 @@ void main() {
 	    card[index] = 0;
 	    printf("%s\n", card);
 	    index = 0;
+	    // Talk to database
+	    digitalWrite(25, 1);
 	  } 
 	}
       }
