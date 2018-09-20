@@ -59,7 +59,6 @@ void main() {
       if (ev.value >= 0 && ev.value <= 2) {
 	if (ev.value == 1) {
 	  char key = remapKeyCode(ev.code);
-	  printf("%c,", key);
 	  if (key != '\n') {
 	    if (index >= CARD_LENGTH) {
 	      index = 0;
@@ -73,8 +72,6 @@ void main() {
 	    fsync(fd_fifo);
 	    index = 0;
 	  } else {
-	    // too few characters
-	    printf("only %d characters recieved\n", index);
 	    index = 0;
 	  }
 	}
