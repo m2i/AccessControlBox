@@ -5,7 +5,9 @@
 #include <linux/input.h>
 #include <string.h>
 #include <stdio.h>
-#include <wiringPi.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#define CARD_LENGTH 12
 
 char remapKeyCode(int scanCode);
 
@@ -16,76 +18,64 @@ static const char * const evval[3] = {
 };
 
 void main() {
-  const char* device = "/dev/input/by-path/platform-3f980000.usb-usb-0:1.5:1.0-event-kbd";
-  int nready;
-  fd_set readfds;
+  const char* device = "/dev/input/by-id/usb-RFIDeas_USB_Keyboard-event-kbd";
+  //const char* device = "/dev/input/by-id/usb-Dell_Dell_QuietKey_Keyboard-event-kbd";
+  const char* fifo_name = "/tmp/cardIDs.fifo";
   struct timeval read_timeout;
   struct input_event ev;
   ssize_t n;
-  int fd;
+  int fd_kbd, fd_fifo;
   int index = 0;
-  char card[15];
-  int dead_counter = 0;
-  if (wiringPiSetup() == -1) {
-    return;
+  char card[CARD_LENGTH+1];
+  
+  if(mkfifo(fifo_name, 0666)) {
+    printf("Could not make FIFO: %s\n", strerror(errno));
   }
-  pinMode(25, OUTPUT);
-			
-  fd = open(device, O_RDONLY);
-  if (fd == -1) {
+  fd_fifo = open(fifo_name, O_WRONLY);
+  if (fd_fifo < 0) {
+    printf("Could not open FIFO: %s\n", strerror(errno));
+  }
+  fd_kbd = open(device, O_RDONLY);
+  if (fd_kbd == -1) {
     printf("Could not open device: %s\n", strerror(errno));
     return;
   }
-  
+  card[CARD_LENGTH] = 0;
   while (1) {
-    
-    FD_ZERO(&readfds);
-    FD_SET(fd, &readfds);
-    read_timeout.tv_usec = 500000;
-    read_timeout.tv_sec = 0;
-    nready = select(fd+1, &readfds, NULL, NULL, &read_timeout);
-    if (nready == -1) {
-      //      die?
-      continue;
-    } else if (nready == 0 && dead_counter > 10) {
-      // Do nothing
-      dead_counter = 0;
-      printf("Output Off\n");
-      digitalWrite(25, 0);
-      continue;
-    } else if (nready == 0) {
-      dead_counter++;
-      printf("No Input\n");      
-    } else {
-      //data ready
-      n = read(fd, &ev, sizeof(ev));
-      dead_counter = 0;
-      if (n == (ssize_t)-1) {
-	if (errno = EINTR) {
-	  continue;
-	} else {
-	  break;
-	}
-      } else if (n == 0) {
+    n = read(fd_kbd, &ev, sizeof(ev));
+    if (n == (ssize_t)-1) {
+      if (errno = EINTR) {
 	continue;
-      }else if (n != sizeof(ev)) {
-	errno = EIO;
+      } else {
 	break;
       }
-      if (ev.type == EV_KEY) {
-	if (ev.value >= 0 && ev.value <= 2) {
-	  printf("%s 0x%04x (%d)\n", evval[ev.value], (int)ev.code, (int)ev.code);
-	  if (ev.value == 1) {
-	    char key = remapKeyCode(ev.code);
-	    if (key != '\n') {
-	      card[index++] = key;
-	    } else {
-	      card[index] = 0;
-	      printf("%s\n", card);
+    } else if (n == 0) {
+      continue;
+    }else if (n != sizeof(ev)) {
+      errno = EIO;
+      break;
+    }
+    if (ev.type == EV_KEY) {
+      if (ev.value >= 0 && ev.value <= 2) {
+	if (ev.value == 1) {
+	  char key = remapKeyCode(ev.code);
+	  printf("%c,", key);
+	  if (key != '\n') {
+	    if (index >= CARD_LENGTH) {
 	      index = 0;
-	      // Talk to database
-	      digitalWrite(25, 1);
-	    } 
+	    } else {
+	      card[index++] = key;
+	    }
+	  } else if (index == CARD_LENGTH) {
+	    printf("%s\n", card);
+	    write(fd_fifo, card, CARD_LENGTH);
+	    write(fd_fifo, "\n", 1);
+	    fsync(fd_fifo);
+	    index = 0;
+	  } else {
+	    // too few characters
+	    printf("only %d characters recieved\n", index);
+	    index = 0;
 	  }
 	}
       }
